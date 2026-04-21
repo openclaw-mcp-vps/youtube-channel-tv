@@ -1,116 +1,80 @@
-import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createChannel, listChannels } from "@/lib/database";
-import { getRequestViewerEmail } from "@/lib/paywall";
-import { fetchYouTubeMetadata } from "@/lib/youtube";
+import { ACCESS_COOKIE_NAME, auth, verifyAccessToken } from "@/lib/auth";
+import { getLineup, saveLineup } from "@/lib/db";
+import { getChannelsByIds } from "@/lib/youtube";
 
-interface CreateChannelPayload {
-  name?: string;
-  description?: string;
-  theme?: string;
-  logoUrl?: string;
-  lineup?: string;
-  breakEvery?: number;
-  breakDurationSec?: number;
+export const runtime = "nodejs";
+
+const MAX_CHANNELS = 24;
+
+function normalizeChannelIds(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+
+  const ids = values
+    .map((item) => String(item ?? "").trim())
+    .filter((id) => id.length > 0)
+    .filter((id) => id.startsWith("UC") || id.length > 12);
+
+  return [...new Set(ids)].slice(0, MAX_CHANNELS);
 }
 
-function parseDuration(line: string): { url: string; durationSec: number } {
-  const [urlPart, durationPart] = line.split("|").map((part) => part.trim());
+export async function GET(request: NextRequest) {
+  const session = await auth();
+  const email = session?.user?.email;
 
-  if (!urlPart) {
-    throw new Error("Each lineup row requires a YouTube URL.");
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!durationPart) {
-    return { url: urlPart, durationSec: 600 };
-  }
+  const hasAccess = verifyAccessToken(request.cookies.get(ACCESS_COOKIE_NAME)?.value, email);
 
-  const numeric = Number(durationPart);
+  const channelIds = await getLineup(email);
 
-  if (Number.isNaN(numeric) || numeric <= 0) {
-    throw new Error(`Invalid duration value in lineup row: ${line}`);
-  }
-
-  return { url: urlPart, durationSec: Math.round(numeric * 60) };
-}
-
-export async function GET(): Promise<NextResponse> {
-  const channels = await listChannels();
-  return NextResponse.json({ channels });
-}
-
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const viewerEmail = getRequestViewerEmail(request);
-
-  if (!viewerEmail) {
-    return NextResponse.json(
-      { error: "Paid access is required to create channels." },
-      { status: 401 }
-    );
-  }
-
-  let payload: CreateChannelPayload;
-
-  try {
-    payload = (await request.json()) as CreateChannelPayload;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
-  }
-
-  if (!payload.name || !payload.description || !payload.theme || !payload.lineup) {
-    return NextResponse.json(
-      { error: "name, description, theme, and lineup are required." },
-      { status: 400 }
-    );
-  }
-
-  const lineupRows = payload.lineup
-    .split("\n")
-    .map((row) => row.trim())
-    .filter(Boolean);
-
-  if (lineupRows.length < 2) {
-    return NextResponse.json(
-      { error: "Add at least two YouTube videos for a proper channel loop." },
-      { status: 400 }
-    );
+  if (!channelIds.length) {
+    return NextResponse.json({ channelIds: [], channels: [], hasAccess });
   }
 
   try {
-    const programs = await Promise.all(
-      lineupRows.map(async (row) => {
-        const { url, durationSec } = parseDuration(row);
-        const metadata = await fetchYouTubeMetadata(url);
+    const channels = await getChannelsByIds(channelIds);
+    const byId = new Map(channels.map((channel) => [channel.id, channel]));
 
-        return {
-          id: randomUUID(),
-          title: metadata.title,
-          videoId: metadata.videoId,
-          sourceUrl: metadata.watchUrl,
-          durationSec
-        };
-      })
-    );
-
-    const channel = await createChannel({
-      name: payload.name,
-      description: payload.description,
-      theme: payload.theme,
-      logoUrl: payload.logoUrl?.trim() || programs[0].sourceUrl.replace("watch?v=", "vi/") + "/hqdefault.jpg",
-      breakEvery:
-        typeof payload.breakEvery === "number" && payload.breakEvery > 0
-          ? Math.min(Math.max(payload.breakEvery, 1), 8)
-          : 3,
-      breakDurationSec:
-        typeof payload.breakDurationSec === "number" && payload.breakDurationSec >= 15
-          ? Math.min(Math.max(payload.breakDurationSec, 15), 300)
-          : 90,
-      programs
+    return NextResponse.json({
+      channelIds,
+      channels: channelIds.map((id) => byId.get(id)).filter(Boolean),
+      hasAccess
     });
-
-    return NextResponse.json({ channel }, { status: 201 });
-  } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Unable to create channel.";
-    return NextResponse.json({ error: message }, { status: 400 });
+  } catch {
+    return NextResponse.json({
+      channelIds,
+      channels: channelIds.map((id) => ({ id, title: `Channel ${id.slice(-6)}` })),
+      hasAccess
+    });
   }
+}
+
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  const email = session?.user?.email;
+
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const hasAccess = verifyAccessToken(request.cookies.get(ACCESS_COOKIE_NAME)?.value, email);
+  if (!hasAccess) {
+    return NextResponse.json(
+      { error: "Purchase required. Unlock access from the dashboard after checkout." },
+      { status: 402 }
+    );
+  }
+
+  const body = (await request.json().catch(() => ({}))) as { channelIds?: unknown };
+  const channelIds = normalizeChannelIds(body.channelIds);
+
+  if (!channelIds.length) {
+    return NextResponse.json({ error: "Please provide at least one valid channel id." }, { status: 400 });
+  }
+
+  await saveLineup(email, channelIds);
+  return NextResponse.json({ ok: true, channelIds });
 }

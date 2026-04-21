@@ -1,44 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchSearchSuggestions, fetchYouTubeMetadata } from "@/lib/youtube";
+import { ACCESS_COOKIE_NAME, auth, verifyAccessToken } from "@/lib/auth";
+import { getLineup } from "@/lib/db";
+import { buildContinuousQueue, searchChannels } from "@/lib/youtube";
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const { searchParams } = new URL(request.url);
-  const url = searchParams.get("url");
-  const query = searchParams.get("q");
+export const runtime = "nodejs";
 
-  try {
-    if (url) {
-      const metadata = await fetchYouTubeMetadata(url);
-      return NextResponse.json({ metadata });
+export async function GET(request: NextRequest) {
+  const session = await auth();
+  const email = session?.user?.email;
+
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const action = request.nextUrl.searchParams.get("action");
+
+  if (action === "search-channels") {
+    const hasAccess = verifyAccessToken(request.cookies.get(ACCESS_COOKIE_NAME)?.value, email);
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Unlock required before channel search." }, { status: 402 });
     }
 
-    if (query) {
-      const suggestions = await fetchSearchSuggestions(query);
-      return NextResponse.json({ suggestions });
+    const query = request.nextUrl.searchParams.get("q") ?? "";
+
+    try {
+      const channels = await searchChannels(query);
+      return NextResponse.json({ channels });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "YouTube search failed. Verify YOUTUBE_API_KEY configuration."
+        },
+        { status: 500 }
+      );
+    }
+  }
+
+  if (action === "build-queue") {
+    const hasAccess = verifyAccessToken(request.cookies.get(ACCESS_COOKIE_NAME)?.value, email);
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Unlock required before watching TV mode." }, { status: 402 });
     }
 
-    return NextResponse.json(
-      { error: "Pass either ?url=YOUTUBE_URL for metadata or ?q=QUERY for search suggestions." },
-      { status: 400 }
-    );
-  } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Unable to process YouTube request.";
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
-}
+    const channelIdsParam = request.nextUrl.searchParams.get("channelIds") ?? "";
+    const perChannelParam = Number(request.nextUrl.searchParams.get("perChannel") ?? "12");
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const payload = (await request.json()) as { url?: string };
+    const requestedChannelIds = channelIdsParam
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
 
-  if (!payload.url) {
-    return NextResponse.json({ error: "url is required." }, { status: 400 });
+    const channelIds = requestedChannelIds.length > 0 ? requestedChannelIds : await getLineup(email);
+
+    if (!channelIds.length) {
+      return NextResponse.json({ queue: [] });
+    }
+
+    try {
+      const queue = await buildContinuousQueue(channelIds, Number.isNaN(perChannelParam) ? 12 : perChannelParam);
+      return NextResponse.json({ queue });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Queue build failed. Verify YOUTUBE_API_KEY configuration."
+        },
+        { status: 500 }
+      );
+    }
   }
 
-  try {
-    const metadata = await fetchYouTubeMetadata(payload.url);
-    return NextResponse.json({ metadata });
-  } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Unable to fetch YouTube metadata.";
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
+  return NextResponse.json(
+    {
+      error: "Invalid action. Use action=search-channels or action=build-queue"
+    },
+    { status: 400 }
+  );
 }

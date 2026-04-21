@@ -4,31 +4,31 @@ Build a complete, production-ready Next.js 15 App Router application.
 
 PROJECT: youtube-channel-tv
 HEADLINE: Turn YouTube into actual TV channels
-WHAT: None
-WHY: None
-WHO PAYS: None
+WHAT: Transforms YouTube channels into continuous TV-style streams that play automatically without manual video selection. Users create custom channel lineups from their favorite creators and watch passively like traditional television.
+WHY: YouTube's endless choice paralysis kills the relaxing TV experience people crave after work. The algorithm pushes engagement over comfort, making it impossible to just lean back and watch without constant decisions.
+WHO PAYS: Busy professionals and parents who want background entertainment without the mental overhead of choosing what to watch. People who miss the simplicity of cable TV but prefer YouTube's content quality.
 NICHE: entertainment-tools
 PRICE: $$8/mo
 
 ARCHITECTURE SPEC:
-A Next.js web app that creates custom TV channel experiences by curating YouTube videos into continuous playlists with channel branding, scheduling, and viewer chat. Users can create themed channels (e.g., '90s Music TV', 'Cooking Shows') that play curated YouTube content 24/7 with TV-like presentation including channel logos, program guides, and commercial breaks.
+A Next.js web app that fetches YouTube channel content via YouTube Data API and creates continuous TV-style playlists. Users authenticate, select favorite channels, and the app automatically queues videos in a seamless viewing experience with channel switching controls.
 
 PLANNED FILES:
 - app/page.tsx
 - app/dashboard/page.tsx
-- app/channel/[id]/page.tsx
-- app/api/channels/route.ts
+- app/tv/page.tsx
 - app/api/youtube/route.ts
+- app/api/channels/route.ts
 - app/api/webhooks/lemonsqueezy/route.ts
-- components/ChannelPlayer.tsx
-- components/ProgramGuide.tsx
-- components/ChannelCreator.tsx
+- components/ChannelSelector.tsx
+- components/TVPlayer.tsx
+- components/ChannelGuide.tsx
 - lib/youtube.ts
+- lib/auth.ts
+- lib/db.ts
 - lib/lemonsqueezy.ts
-- lib/database.ts
-- prisma/schema.prisma
 
-DEPENDENCIES: next, react, typescript, tailwindcss, prisma, @prisma/client, next-auth, @lemonsqueezy/lemonsqueezy.js, youtube-player, date-fns, lucide-react, framer-motion
+DEPENDENCIES: next, react, tailwindcss, next-auth, @auth/prisma-adapter, prisma, @prisma/client, googleapis, @lemonsqueezy/lemonsqueezy.js, lucide-react, react-player
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)

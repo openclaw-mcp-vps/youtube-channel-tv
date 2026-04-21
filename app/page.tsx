@@ -1,154 +1,169 @@
 import Link from "next/link";
-import { Clock3, Layers, Tv, Wallet } from "lucide-react";
+import { CheckCircle2, CirclePlay, Gauge, ListVideo, Tv2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 
 const faqs = [
   {
-    question: "How is this different from a normal YouTube playlist?",
+    question: "How is this different from YouTube playlists?",
     answer:
-      "YouTube Channel TV turns playlists into always-on channels with TV timing, branded identity, and a live-style program guide instead of a static list."
+      "Playlists are still manual. YouTube Channel TV auto-builds a rotating queue from multiple creators, then keeps going like a live channel feed."
   },
   {
-    question: "Do viewers need an account to watch channels?",
+    question: "Does it work with family routines and background viewing?",
     answer:
-      "Only channel owners need a paid account. You can share your channel URL with viewers who just want to tune in."
+      "Yes. It is designed for low-effort viewing: start the stream, switch channels when needed, and let it run while you cook, tidy up, or unwind."
   },
   {
-    question: "How do commercial breaks work?",
+    question: "Do I need to pick videos every time?",
     answer:
-      "You choose break frequency and break duration when creating a channel. The scheduler inserts breaks automatically as part of the 24/7 loop."
+      "No. You choose creators once, save your lineup, and playback continues automatically without constant clicks."
   },
   {
-    question: "When do I get access after purchasing?",
+    question: "How do I unlock premium access after payment?",
     answer:
-      "Checkout completes through Stripe Payment Link. Once Stripe webhook confirms payment, unlock the dashboard using the same checkout email."
+      "Buy through Stripe, then use the unlock step inside your dashboard with the same email address you used at checkout."
   }
 ];
 
 export default function HomePage() {
+  const paymentLink = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK;
+
   return (
-    <main className="min-h-screen bg-transparent text-slate-100">
-      <section className="mx-auto flex max-w-6xl flex-col gap-8 px-6 pb-20 pt-16">
-        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-400/40 bg-cyan-400/10 px-4 py-1 text-xs uppercase tracking-[0.2em] text-cyan-300">
-          Turn YouTube into actual TV channels
-        </div>
-
-        <div className="grid items-center gap-10 lg:grid-cols-[1.2fr_1fr]">
-          <div className="space-y-6">
-            <h1 className="text-5xl leading-[1.05] tracking-tight sm:text-6xl">
-              Build always-on YouTube channels that feel like real TV.
-            </h1>
-            <p className="max-w-xl text-lg text-slate-300">
-              Launch themed channels in minutes with continuous playback, program scheduling,
-              commercial-style breaks, and a viewer chat panel.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button asChild size="lg">
-                <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer">
-                  Start for $8/mo
-                </a>
-              </Button>
-              <Button asChild size="lg" variant="outline">
-                <Link href="/unlock">I already purchased</Link>
-              </Button>
-            </div>
-            <p className="text-sm text-slate-400">Hosted checkout through Stripe Payment Link. No custom billing flow.</p>
+    <div className="space-y-16">
+      <section className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+        <div className="space-y-6">
+          <Badge>Entertainment Tools</Badge>
+          <h1 className="text-4xl font-bold tracking-tight text-zinc-100 md:text-5xl">
+            Turn YouTube Into Actual TV Channels
+          </h1>
+          <p className="max-w-2xl text-lg leading-relaxed text-zinc-300">
+            Build a lineup from your favorite creators and watch passively like cable TV. No endless browsing,
+            no algorithm rabbit holes, and no decision fatigue after a long day.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button asChild size="lg" className="min-w-40">
+              <Link href="/login">Start Free Setup</Link>
+            </Button>
+            <a
+              href={paymentLink}
+              className="inline-flex min-h-12 min-w-40 items-center justify-center rounded-md bg-white/5 px-6 py-3 text-base font-semibold text-zinc-100 transition-colors hover:bg-white/10"
+            >
+              Buy for $8/mo
+            </a>
           </div>
-
-          <Card className="border-cyan-400/30 bg-gradient-to-b from-slate-900/80 to-slate-950/90">
-            <CardHeader>
-              <CardTitle className="text-2xl">What you get</CardTitle>
-              <CardDescription>Designed for creators, communities, and niche curators.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm text-slate-200">
-              <div className="flex items-start gap-3">
-                <Tv className="mt-0.5 h-4 w-4 text-cyan-300" />
-                <p>Branded channel pages with logos, now-playing overlays, and TV-style continuity.</p>
-              </div>
-              <div className="flex items-start gap-3">
-                <Clock3 className="mt-0.5 h-4 w-4 text-cyan-300" />
-                <p>24/7 schedule engine that calculates live position and upcoming guide slots.</p>
-              </div>
-              <div className="flex items-start gap-3">
-                <Layers className="mt-0.5 h-4 w-4 text-cyan-300" />
-                <p>Commercial-break automation to preserve pacing and create channel rhythm.</p>
-              </div>
-            </CardContent>
-          </Card>
+          <p className="text-sm text-zinc-400">
+            Built for busy professionals and parents who want quality background entertainment without mental overhead.
+          </p>
         </div>
-      </section>
 
-      <section className="mx-auto grid max-w-6xl gap-4 px-6 pb-20 sm:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">The Problem</CardTitle>
+        <Card className="relative overflow-hidden border-cyan-400/20">
+          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-transparent" />
+          <CardHeader className="relative z-10">
+            <CardTitle className="flex items-center gap-2">
+              <Tv2 className="h-5 w-5 text-cyan-300" />
+              Tonight&apos;s Lean-Back Stack
+            </CardTitle>
+            <CardDescription>Auto-built lineup from the channels you trust most.</CardDescription>
           </CardHeader>
-          <CardContent className="text-slate-300">
-            Playlists are passive. They have no identity, no pacing, and no shared viewing experience.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">The Solution</CardTitle>
-          </CardHeader>
-          <CardContent className="text-slate-300">
-            Channelize YouTube content into a structured stream with guide data and channel personality.
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">The Result</CardTitle>
-          </CardHeader>
-          <CardContent className="text-slate-300">
-            Fans tune in like a station, not a playlist. Session length and repeat visits increase.
+          <CardContent className="relative z-10 space-y-3 text-sm">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-zinc-200">7:00 PM • Home Repairs Channel</div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-zinc-200">7:24 PM • Parenting & Family Stories</div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-zinc-200">7:51 PM • Slow Cooking & Kitchen TV</div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-zinc-200">8:19 PM • Design + Productivity Deep Dive</div>
           </CardContent>
         </Card>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-20">
-        <Card className="border-cyan-400/30 bg-slate-950/80">
+      <Separator />
+
+      <section className="grid gap-6 md:grid-cols-3">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-3xl">Pricing</CardTitle>
-            <CardDescription>One simple creator plan.</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Gauge className="h-5 w-5 text-cyan-300" />
+              The Real Problem
+            </CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-end">
-            <div className="space-y-2">
-              <p className="text-5xl font-semibold">$8<span className="text-xl text-slate-400">/month</span></p>
-              <p className="max-w-xl text-sm text-slate-300">
-                Unlimited channel creation, viewer-ready channel pages, program guides, and scheduling controls.
+          <CardContent className="text-zinc-300">
+            YouTube is great content with terrible unwind UX. Every session starts with a decision tree instead of instant comfort.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <ListVideo className="h-5 w-5 text-cyan-300" />
+              The Solution
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-zinc-300">
+            Channel lineups become rotating streams. One tap starts playback, and the next video is always ready.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CirclePlay className="h-5 w-5 text-cyan-300" />
+              Daily Outcome
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-zinc-300">
+            Background entertainment that feels predictable, calm, and effortless, exactly like old-school TV but with modern creators.
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>How It Works</CardTitle>
+            <CardDescription>Production-ready flow from signup to passive viewing.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-zinc-300">
+            <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-cyan-300" />Sign in and search for YouTube channels you already trust.</p>
+            <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-cyan-300" />Arrange your lineup order to control round-robin playback.</p>
+            <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-cyan-300" />Unlock premium and launch your personal TV stream instantly.</p>
+            <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-cyan-300" />Switch channels anytime with remote-style controls and a live guide.</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-cyan-400/20">
+          <CardHeader>
+            <CardTitle>Simple Pricing</CardTitle>
+            <CardDescription>One plan designed for daily use.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="text-4xl font-bold text-zinc-100">$8<span className="text-xl text-zinc-400">/mo</span></p>
+              <p className="mt-2 text-sm text-zinc-300">
+                Unlimited channel lineups, continuous TV mode, and paywall-protected access.
               </p>
             </div>
-            <Button asChild size="lg">
-              <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer">
-                Buy Now
-              </a>
-            </Button>
+            <a
+              href={paymentLink}
+              className="inline-flex w-full items-center justify-center rounded-md bg-cyan-500 px-4 py-3 text-sm font-semibold text-black transition-colors hover:bg-cyan-400"
+            >
+              Buy Now on Stripe
+            </a>
           </CardContent>
         </Card>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 pb-24">
-        <h2 className="mb-6 text-3xl font-semibold">FAQ</h2>
-        <div className="space-y-3">
+      <section className="space-y-4">
+        <h2 className="text-2xl font-semibold text-zinc-100">FAQ</h2>
+        <div className="grid gap-4 md:grid-cols-2">
           {faqs.map((faq) => (
-            <details key={faq.question} className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
-              <summary className="cursor-pointer text-lg font-medium">{faq.question}</summary>
-              <p className="mt-3 text-sm leading-relaxed text-slate-300">{faq.answer}</p>
-            </details>
+            <Card key={faq.question}>
+              <CardHeader>
+                <CardTitle className="text-lg">{faq.question}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm leading-relaxed text-zinc-300">{faq.answer}</CardContent>
+            </Card>
           ))}
         </div>
       </section>
-
-      <footer className="border-t border-slate-800/80 px-6 py-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 text-sm text-slate-400">
-          <p>YouTube Channel TV</p>
-          <div className="flex items-center gap-2">
-            <Wallet className="h-4 w-4" />
-            <span>Stripe-hosted checkout</span>
-          </div>
-        </div>
-      </footer>
-    </main>
+    </div>
   );
 }
