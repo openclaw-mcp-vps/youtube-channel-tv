@@ -1,209 +1,201 @@
 import { google } from "googleapis";
 
-export type YouTubeChannelSummary = {
-  channelId: string;
-  title: string;
-  description: string;
-  thumbnailUrl: string;
-  handle?: string;
-  videoCount?: number;
-};
+import type { YouTubeChannel, YouTubeVideo } from "@/types";
 
-export type YouTubeVideo = {
-  videoId: string;
-  title: string;
-  channelId: string;
-  channelTitle: string;
-  description: string;
-  thumbnailUrl: string;
-  publishedAt: string;
-};
-
-function getYouTubeApiKey() {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) {
-    throw new Error("YOUTUBE_API_KEY is missing. Add it to your environment to fetch channel videos.");
-  }
-  return key;
-}
+const FALLBACK_THUMBNAIL = "https://i.ytimg.com/vi/default/default.jpg";
 
 function getYouTubeClient() {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing YOUTUBE_API_KEY. Set it in your environment variables.");
+  }
+
   return google.youtube({
     version: "v3",
-    auth: getYouTubeApiKey()
+    auth: apiKey
   });
 }
 
-function cleanChannelQuery(input: string) {
-  return input.trim();
-}
-
-function extractChannelId(input: string) {
-  const normalized = input.trim();
-  const fromRawId = normalized.match(/^(UC[\w-]{22})$/);
-  if (fromRawId?.[1]) {
-    return fromRawId[1];
-  }
-
-  const fromUrl = normalized.match(/youtube\.com\/channel\/(UC[\w-]{22})/i);
-  if (fromUrl?.[1]) {
-    return fromUrl[1];
-  }
-
-  return null;
+function extractChannelIdFromUrl(input: string) {
+  const match = input.match(/youtube\.com\/channel\/(UC[\w-]{20,})/i);
+  return match ? match[1] : null;
 }
 
 function extractHandle(input: string) {
-  const normalized = input.trim();
-  const fromHandle = normalized.match(/^@([\w.-]{3,30})$/);
-  if (fromHandle?.[1]) {
-    return fromHandle[1];
+  const fromUrl = input.match(/youtube\.com\/(?:@|user\/)?([\w.-]+)/i);
+
+  if (input.startsWith("@")) {
+    return input.slice(1);
   }
 
-  const fromUrl = normalized.match(/youtube\.com\/@([\w.-]{3,30})/i);
-  if (fromUrl?.[1]) {
-    return fromUrl[1];
+  if (fromUrl && input.includes("@")) {
+    return fromUrl[1]?.replace(/^@/, "") || null;
+  }
+
+  if (fromUrl && input.includes("youtube.com/user/")) {
+    return fromUrl[1] || null;
   }
 
   return null;
 }
 
-function bestThumbnail(thumbnails: Record<string, { url?: string } | undefined> | undefined) {
-  return (
-    thumbnails?.maxres?.url ??
-    thumbnails?.high?.url ??
-    thumbnails?.medium?.url ??
-    thumbnails?.default?.url ??
-    ""
-  );
-}
+async function resolveChannelId(input: string) {
+  const query = input.trim();
+  const fromUrl = extractChannelIdFromUrl(query);
 
-async function fetchChannelById(channelId: string): Promise<YouTubeChannelSummary | null> {
-  const youtube = getYouTubeClient();
-  const response = await youtube.channels.list({
-    id: [channelId],
-    part: ["snippet", "statistics"]
-  });
-
-  const item = response.data.items?.[0];
-  if (!item?.id || !item.snippet?.title) {
-    return null;
+  if (fromUrl) {
+    return fromUrl;
   }
 
-  return {
-    channelId: item.id,
-    title: item.snippet.title,
-    description: item.snippet.description ?? "",
-    thumbnailUrl: bestThumbnail(item.snippet.thumbnails as Record<string, { url?: string } | undefined>),
-    handle: item.snippet.customUrl ?? undefined,
-    videoCount: Number(item.statistics?.videoCount ?? 0)
-  };
-}
+  if (query.startsWith("UC") && query.length >= 20) {
+    return query;
+  }
 
-async function searchForChannel(query: string): Promise<YouTubeChannelSummary | null> {
   const youtube = getYouTubeClient();
+
+  if (query.includes("youtube.com/user/")) {
+    const userHandle = extractHandle(query);
+    if (userHandle) {
+      const byUsername = await youtube.channels.list({
+        part: ["id"],
+        forUsername: userHandle,
+        maxResults: 1
+      });
+
+      const usernameMatch = byUsername.data.items?.[0]?.id;
+      if (usernameMatch) {
+        return usernameMatch;
+      }
+    }
+  }
+
+  const handle = extractHandle(query) || query.replace(/^@/, "");
   const search = await youtube.search.list({
     part: ["snippet"],
-    q: query,
+    q: handle,
     type: ["channel"],
     maxResults: 1
   });
 
-  const candidate = search.data.items?.[0];
-  const channelId = candidate?.id?.channelId;
-  if (!channelId) {
-    return null;
+  const match = search.data.items?.[0]?.snippet?.channelId;
+  if (!match) {
+    throw new Error("No channel found for that input.");
   }
 
-  return fetchChannelById(channelId);
+  return match;
 }
 
-export async function resolveChannel(input: string): Promise<YouTubeChannelSummary> {
-  const query = cleanChannelQuery(input);
-
-  if (!query) {
-    throw new Error("Add a channel URL, @handle, or channel ID.");
+function formatDuration(isoDuration: string | null | undefined) {
+  if (!isoDuration) {
+    return "Unknown";
   }
 
-  const channelId = extractChannelId(query);
-  if (channelId) {
-    const byId = await fetchChannelById(channelId);
-    if (byId) {
-      return byId;
-    }
+  const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) {
+    return "Unknown";
   }
 
-  const handle = extractHandle(query);
-  if (handle) {
-    const byHandle = await searchForChannel(handle);
-    if (byHandle) {
-      return byHandle;
-    }
+  const hours = Number.parseInt(match[1] || "0", 10);
+  const minutes = Number.parseInt(match[2] || "0", 10);
+  const seconds = Number.parseInt(match[3] || "0", 10);
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
 
-  const byQuery = await searchForChannel(query.replace(/^https?:\/\//, ""));
-  if (byQuery) {
-    return byQuery;
-  }
-
-  throw new Error("No matching YouTube channel was found for that input.");
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export async function getRecentVideos(channelId: string, maxResults = 12): Promise<YouTubeVideo[]> {
+async function fetchVideosForUploads(uploadsPlaylistId: string, channelId: string, channelTitle: string) {
   const youtube = getYouTubeClient();
-  const response = await youtube.search.list({
-    channelId,
-    part: ["snippet"],
-    maxResults,
-    order: "date",
-    type: ["video"]
+
+  const playlistResponse = await youtube.playlistItems.list({
+    part: ["snippet", "contentDetails"],
+    playlistId: uploadsPlaylistId,
+    maxResults: 20
   });
 
-  return (response.data.items ?? [])
+  const playlistItems = playlistResponse.data.items ?? [];
+  const videoIds = playlistItems
+    .map((item) => item.contentDetails?.videoId)
+    .filter((value): value is string => Boolean(value));
+
+  let durations = new Map<string, string>();
+
+  if (videoIds.length > 0) {
+    const videosResponse = await youtube.videos.list({
+      part: ["contentDetails"],
+      id: videoIds
+    });
+
+    durations = new Map(
+      (videosResponse.data.items ?? [])
+        .map((item) => [item.id, formatDuration(item.contentDetails?.duration)] as const)
+        .filter((entry): entry is readonly [string, string] => Boolean(entry[0]))
+    );
+  }
+
+  const videos: YouTubeVideo[] = playlistItems
     .map((item) => {
-      const videoId = item.id?.videoId;
+      const videoId = item.contentDetails?.videoId;
       const snippet = item.snippet;
-      if (!videoId || !snippet?.title || !snippet.channelId) {
+
+      if (!videoId || !snippet?.title || !snippet.publishedAt) {
         return null;
       }
 
       return {
-        videoId,
+        id: videoId,
         title: snippet.title,
-        channelId: snippet.channelId,
-        channelTitle: snippet.channelTitle ?? "Unknown Channel",
-        description: snippet.description ?? "",
-        thumbnailUrl: bestThumbnail(snippet.thumbnails as Record<string, { url?: string } | undefined>),
-        publishedAt: snippet.publishedAt ?? new Date(0).toISOString()
-      };
+        description: snippet.description || "",
+        publishedAt: snippet.publishedAt,
+        thumbnailUrl:
+          snippet.thumbnails?.maxres?.url ||
+          snippet.thumbnails?.high?.url ||
+          snippet.thumbnails?.medium?.url ||
+          snippet.thumbnails?.default?.url ||
+          FALLBACK_THUMBNAIL,
+        duration: durations.get(videoId) || "Unknown",
+        channelId,
+        channelTitle,
+        url: `https://www.youtube.com/watch?v=${videoId}`
+      } satisfies YouTubeVideo;
     })
     .filter((video): video is YouTubeVideo => video !== null);
+
+  return videos;
 }
 
-export async function buildContinuousLineup(channelIds: string[], perChannel = 8): Promise<YouTubeVideo[]> {
-  const uniqueChannelIds = Array.from(new Set(channelIds.filter(Boolean)));
+export async function getChannelWithVideos(input: string): Promise<YouTubeChannel> {
+  const channelId = await resolveChannelId(input);
+  const youtube = getYouTubeClient();
 
-  const perChannelVideos = await Promise.all(
-    uniqueChannelIds.map(async (channelId) => {
-      const videos = await getRecentVideos(channelId, perChannel);
-      return videos.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
-    })
-  );
+  const channelResponse = await youtube.channels.list({
+    part: ["snippet", "contentDetails"],
+    id: [channelId],
+    maxResults: 1
+  });
 
-  const lineup: YouTubeVideo[] = [];
-  let didAdd = true;
-
-  while (didAdd && lineup.length < uniqueChannelIds.length * perChannel) {
-    didAdd = false;
-
-    for (const list of perChannelVideos) {
-      const nextVideo = list.shift();
-      if (nextVideo) {
-        lineup.push(nextVideo);
-        didAdd = true;
-      }
-    }
+  const channel = channelResponse.data.items?.[0];
+  if (!channel?.id || !channel.snippet || !channel.contentDetails?.relatedPlaylists?.uploads) {
+    throw new Error("Channel was found, but its uploads feed could not be loaded.");
   }
 
-  return lineup;
+  const uploadsPlaylistId = channel.contentDetails.relatedPlaylists.uploads;
+
+  const title = channel.snippet.title || "Untitled Channel";
+  const videos = await fetchVideosForUploads(uploadsPlaylistId, channel.id, title);
+
+  return {
+    id: channel.id,
+    title,
+    description: channel.snippet.description || "",
+    thumbnailUrl:
+      channel.snippet.thumbnails?.high?.url ||
+      channel.snippet.thumbnails?.medium?.url ||
+      channel.snippet.thumbnails?.default?.url ||
+      FALLBACK_THUMBNAIL,
+    uploadsPlaylistId,
+    videos
+  };
 }

@@ -1,125 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { clearAccessCookie, getAccessFromRequest, setAccessCookie } from "@/lib/auth";
-import { addChannelForEmail, getChannelsForEmail, hasPurchase, removeChannelForEmail } from "@/lib/db";
-import { resolveChannel } from "@/lib/youtube";
 
-const verifyPayload = z.object({
-  action: z.literal("verify"),
-  email: z.string().email()
-});
+import { auth } from "@/lib/auth";
+import { getLineupByEmail, saveLineupByEmail } from "@/lib/storage";
+import { hasActiveAccess } from "@/lib/subscription";
+import type { YouTubeChannel } from "@/types";
 
-const addPayload = z.object({
-  action: z.literal("add"),
-  query: z.string().min(2)
-});
+export const runtime = "nodejs";
 
-const removePayload = z.object({
-  action: z.literal("remove"),
-  channelId: z.string().min(1)
-});
-
-const logoutPayload = z.object({
-  action: z.literal("logout")
-});
-
-async function readJsonPayload(request: NextRequest) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
+function isVideoPayload(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return false;
   }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.title === "string" &&
+    typeof record.url === "string" &&
+    typeof record.channelId === "string"
+  );
+}
+
+function isChannelPayload(value: unknown): value is YouTubeChannel {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.title === "string" &&
+    typeof record.description === "string" &&
+    typeof record.thumbnailUrl === "string" &&
+    typeof record.uploadsPlaylistId === "string" &&
+    Array.isArray(record.videos) &&
+    record.videos.every(isVideoPayload)
+  );
 }
 
 export async function GET(request: NextRequest) {
-  const access = getAccessFromRequest(request);
-  if (!access) {
-    return NextResponse.json({ error: "Access is locked. Verify your purchase first." }, { status: 401 });
+  const session = await auth();
+  const email = session?.user?.email;
+
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const channels = await getChannelsForEmail(access.email);
-  return NextResponse.json({ channels, email: access.email });
+  if (!hasActiveAccess(request.cookies, email)) {
+    return NextResponse.json({ error: "Subscription required." }, { status: 402 });
+  }
+
+  const lineup = await getLineupByEmail(email);
+  return NextResponse.json(lineup);
 }
 
 export async function POST(request: NextRequest) {
-  const payload = await readJsonPayload(request);
-  if (!payload || typeof payload !== "object" || !("action" in payload)) {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const session = await auth();
+  const email = session?.user?.email;
+
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const action = String(payload.action);
-
-  if (action === "verify") {
-    const parsed = verifyPayload.safeParse(payload);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Enter a valid purchase email." }, { status: 400 });
-    }
-
-    const paid = await hasPurchase(parsed.data.email);
-    if (!paid) {
-      return NextResponse.json(
-        {
-          error:
-            "No paid subscription was found for that email yet. Complete checkout first, then try again after a few seconds."
-        },
-        { status: 403 }
-      );
-    }
-
-    const response = NextResponse.json({ ok: true });
-    setAccessCookie(response, parsed.data.email);
-    return response;
+  if (!hasActiveAccess(request.cookies, email)) {
+    return NextResponse.json({ error: "Subscription required." }, { status: 402 });
   }
 
-  if (action === "logout") {
-    const parsed = logoutPayload.safeParse(payload);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid logout payload." }, { status: 400 });
-    }
+  const body = (await request.json()) as { channels?: unknown };
+  const channels = Array.isArray(body.channels) ? body.channels : null;
 
-    const response = NextResponse.json({ ok: true });
-    clearAccessCookie(response);
-    return response;
+  if (!channels || !channels.every(isChannelPayload)) {
+    return NextResponse.json({ error: "Invalid channel payload." }, { status: 400 });
   }
 
-  const access = getAccessFromRequest(request);
-  if (!access) {
-    return NextResponse.json({ error: "Access is locked. Verify your purchase first." }, { status: 401 });
-  }
-
-  if (action === "add") {
-    const parsed = addPayload.safeParse(payload);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Add a valid channel URL, @handle, or channel ID." }, { status: 400 });
-    }
-
-    try {
-      const channel = await resolveChannel(parsed.data.query);
-      const channels = await addChannelForEmail(access.email, {
-        channelId: channel.channelId,
-        title: channel.title,
-        description: channel.description,
-        thumbnailUrl: channel.thumbnailUrl,
-        handle: channel.handle,
-        videoCount: channel.videoCount
-      });
-
-      return NextResponse.json({ ok: true, channels });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not add this channel.";
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-  }
-
-  if (action === "remove") {
-    const parsed = removePayload.safeParse(payload);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "A channel id is required." }, { status: 400 });
-    }
-
-    const channels = await removeChannelForEmail(access.email, parsed.data.channelId);
-    return NextResponse.json({ ok: true, channels });
-  }
-
-  return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
+  const lineup = await saveLineupByEmail(email, channels);
+  return NextResponse.json(lineup);
 }

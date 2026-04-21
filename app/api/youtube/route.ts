@@ -1,55 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccessFromRequest } from "@/lib/auth";
-import { getChannelsForEmail } from "@/lib/db";
-import { buildContinuousLineup } from "@/lib/youtube";
 
-function parseChannelsParam(raw: string | null) {
-  if (!raw) {
-    return [];
-  }
-  return raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
+import { auth } from "@/lib/auth";
+import { hasActiveAccess } from "@/lib/subscription";
+import { getChannelWithVideos } from "@/lib/youtube";
+
+export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const access = getAccessFromRequest(request);
-  if (!access) {
-    return NextResponse.json({ error: "Access is locked. Verify your purchase first." }, { status: 401 });
+  const session = await auth();
+  const email = session?.user?.email;
+
+  if (!email) {
+    return NextResponse.json({ error: "You must sign in first." }, { status: 401 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const explicitChannelId = searchParams.get("channelId");
-  const explicitChannels = parseChannelsParam(searchParams.get("channels"));
-
-  let channelIds = explicitChannels;
-
-  if (explicitChannelId) {
-    channelIds = [explicitChannelId];
+  if (!hasActiveAccess(request.cookies, email)) {
+    return NextResponse.json({ error: "Subscription required." }, { status: 402 });
   }
 
-  if (channelIds.length === 0) {
-    const saved = await getChannelsForEmail(access.email);
-    channelIds = saved.map((item) => item.channelId);
-  }
+  const input = request.nextUrl.searchParams.get("input")?.trim();
 
-  if (channelIds.length === 0) {
-    return NextResponse.json(
-      { error: "No channels available. Add at least one channel on your dashboard." },
-      { status: 400 }
-    );
+  if (!input) {
+    return NextResponse.json({ error: "Missing input query parameter." }, { status: 400 });
   }
 
   try {
-    const playlist = await buildContinuousLineup(channelIds, 10);
-    return NextResponse.json({
-      playlist,
-      channelCount: channelIds.length,
-      generatedAt: new Date().toISOString()
-    });
+    const channel = await getChannelWithVideos(input);
+    return NextResponse.json({ channel });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not load YouTube videos right now.";
+    const message = error instanceof Error ? error.message : "Unable to fetch channel from YouTube.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

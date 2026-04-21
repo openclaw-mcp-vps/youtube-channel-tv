@@ -11,24 +11,24 @@ NICHE: entertainment-tools
 PRICE: $$8/mo
 
 ARCHITECTURE SPEC:
-A Next.js web app that fetches YouTube channel content via YouTube Data API and creates continuous playlists that auto-advance between videos. Users authenticate, select channels, and get a TV-like viewing experience with minimal interaction required.
+A Next.js web app that fetches YouTube channel content via YouTube Data API and creates continuous TV-style playlists. Users authenticate, select favorite channels, and the app automatically queues videos in a seamless viewing experience with channel switching controls.
 
 PLANNED FILES:
 - app/page.tsx
 - app/dashboard/page.tsx
-- app/tv/[channelId]/page.tsx
+- app/tv/page.tsx
 - app/api/youtube/route.ts
 - app/api/channels/route.ts
 - app/api/webhooks/lemonsqueezy/route.ts
 - components/ChannelSelector.tsx
 - components/TVPlayer.tsx
-- components/ChannelGrid.tsx
+- components/ChannelGuide.tsx
 - lib/youtube.ts
 - lib/auth.ts
-- lib/lemonsqueezy.ts
-- lib/db.ts
+- lib/subscription.ts
+- types/index.ts
 
-DEPENDENCIES: next, tailwindcss, next-auth, @lemonsqueezy/lemonsqueezy.js, prisma, @prisma/client, react-player, lucide-react, googleapis
+DEPENDENCIES: next, react, tailwindcss, next-auth, prisma, @prisma/client, googleapis, lemonsqueezy.js, react-player, lucide-react, zustand
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)

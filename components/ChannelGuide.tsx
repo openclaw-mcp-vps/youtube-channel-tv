@@ -1,61 +1,64 @@
 "use client";
 
-import type { YouTubeVideo } from "@/lib/youtube";
+import { Tv } from "lucide-react";
+
+import type { YouTubeChannel } from "@/types";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { formatRelativeDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
-interface ChannelGuideProps {
-  queue: YouTubeVideo[];
-  currentVideoId?: string;
-  onJumpToVideo?: (videoId: string) => void;
-}
+type ChannelGuideProps = {
+  channels: YouTubeChannel[];
+  activeChannelId: string | null;
+  nowPlayingByChannel: Record<string, string>;
+  onSelect(channelId: string): void;
+};
 
-export function ChannelGuide({ queue, currentVideoId, onJumpToVideo }: ChannelGuideProps) {
-  const upcoming = queue.slice(0, 20);
+export default function ChannelGuide({
+  channels,
+  activeChannelId,
+  nowPlayingByChannel,
+  onSelect
+}: ChannelGuideProps) {
+  if (channels.length === 0) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-slate-900/50 p-4 text-sm text-slate-300">
+        Add channels in the dashboard to populate your TV guide.
+      </div>
+    );
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Channel Guide</CardTitle>
-        <CardDescription>
-          A live look at your upcoming rotation so you can lean back without hunting for the next clip.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {upcoming.length === 0 ? (
-          <p className="text-sm text-zinc-400">No queued videos yet. Add channels and refresh your feed.</p>
-        ) : (
-          upcoming.map((video, index) => {
-            const isCurrent = video.id === currentVideoId;
+    <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/50 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
+          <Tv className="h-4 w-4 text-cyan-300" />
+          Channel Guide
+        </div>
+        <Badge>{channels.length} channels</Badge>
+      </div>
 
-            return (
-              <div
-                key={`${video.id}-${index}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2"
-              >
-                <div className="min-w-0 space-y-1">
-                  <p className="truncate text-sm font-medium text-zinc-100">{video.title}</p>
-                  <div className="flex items-center gap-2 text-xs text-zinc-400">
-                    <span className="truncate">{video.channelTitle}</span>
-                    <span>•</span>
-                    <span>{formatRelativeDate(video.publishedAt)}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {isCurrent ? <Badge>Now</Badge> : <Badge variant="muted">Up Next</Badge>}
-                  {onJumpToVideo ? (
-                    <Button variant="ghost" size="sm" onClick={() => onJumpToVideo(video.id)}>
-                      Tune
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </CardContent>
-    </Card>
+      <div className="space-y-2">
+        {channels.map((channel, index) => {
+          const isActive = channel.id === activeChannelId;
+          return (
+            <button
+              key={channel.id}
+              type="button"
+              onClick={() => onSelect(channel.id)}
+              className={cn(
+                "w-full rounded-xl border px-3 py-2 text-left transition",
+                isActive
+                  ? "border-cyan-400/60 bg-cyan-500/10"
+                  : "border-white/10 bg-slate-950/40 hover:border-white/20 hover:bg-slate-900"
+              )}
+            >
+              <p className="text-xs uppercase tracking-wide text-slate-400">CH {String(index + 1).padStart(2, "0")}</p>
+              <p className="truncate text-sm font-medium text-slate-100">{channel.title}</p>
+              <p className="truncate text-xs text-slate-400">{nowPlayingByChannel[channel.id] ?? "Offline"}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -1,39 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
-import { recordPurchase } from "@/lib/db";
+
+import { recordPurchase, verifyStripeWebhookSignature } from "@/lib/subscription";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_placeholder");
+type StripeWebhook = {
+  type?: string;
+  data?: {
+    object?: {
+      id?: string;
+      customer_email?: string;
+      customer_details?: {
+        email?: string;
+      };
+    };
+  };
+};
 
 export async function POST(request: NextRequest) {
+  const payload = await request.text();
   const signature = request.headers.get("stripe-signature");
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  if (!signature || !webhookSecret) {
-    return NextResponse.json({ error: "Missing Stripe webhook configuration." }, { status: 400 });
+  if (!verifyStripeWebhookSignature(payload, signature)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
-  const payload = await request.text();
+  let event: StripeWebhook;
 
-  let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid signature";
-    return NextResponse.json({ error: message }, { status: 400 });
+    event = JSON.parse(payload) as StripeWebhook;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 
   if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    const email = session.customer_details?.email ?? session.customer_email;
+    const sessionId = event.data?.object?.id;
+    const email = event.data?.object?.customer_details?.email || event.data?.object?.customer_email;
 
-    if (email) {
-      await recordPurchase({
-        email,
-        sessionId: session.id,
-        customerId: typeof session.customer === "string" ? session.customer : undefined
-      });
+    if (sessionId && email) {
+      await recordPurchase(email, sessionId);
     }
   }
 

@@ -1,76 +1,84 @@
 import Link from "next/link";
-import { LockKeyhole, PlayCircle, Tv2 } from "lucide-react";
-import ChannelGrid from "@/components/ChannelGrid";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
+import AccessClaimForm from "@/components/AccessClaimForm";
 import ChannelSelector from "@/components/ChannelSelector";
-import VerifyPurchaseForm from "@/components/VerifyPurchaseForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getAccessFromServerCookies } from "@/lib/auth";
-import { getChannelsForEmail } from "@/lib/db";
+import { auth, signOut } from "@/lib/auth";
+import { getLineupByEmail } from "@/lib/storage";
+import { hasActiveAccess } from "@/lib/subscription";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const access = await getAccessFromServerCookies();
+  const session = await auth();
+  const email = session?.user?.email;
+
+  if (!email) {
+    redirect("/");
+  }
+
+  const cookieStore = await cookies();
+  const hasAccess = hasActiveAccess(cookieStore, email);
   const paymentLink = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK;
 
-  if (!access) {
+  async function handleSignOut() {
+    "use server";
+    await signOut({ redirectTo: "/" });
+  }
+
+  if (!hasAccess) {
     return (
-      <main className="section-shell py-12">
-        <Card className="mx-auto max-w-3xl border-[#2d3948] bg-[#101824]">
+      <main className="mx-auto min-h-screen w-full max-w-3xl px-5 pb-16 pt-12 sm:px-8">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <LockKeyhole className="h-6 w-6 text-[#58a6ff]" />
-              Subscriber Access Required
-            </CardTitle>
+            <CardTitle>Unlock TV Mode</CardTitle>
             <CardDescription>
-              This dashboard is paywalled. Complete Stripe checkout, then verify your checkout email to unlock your private TV lineup.
+              Your account is signed in as {email}. Complete checkout, then verify your purchase email to unlock.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <a href={paymentLink ?? ""}>
-              <Button size="lg">Buy YouTube Channel TV ($8/mo)</Button>
-            </a>
-            <VerifyPurchaseForm />
+          <CardContent className="space-y-4">
+            <Link href={paymentLink ?? ""} target="_blank" rel="noreferrer">
+              <Button size="lg">Buy for $8/mo</Button>
+            </Link>
+            <p className="text-sm text-slate-300">
+              If you already paid, use the same email you entered during Stripe checkout.
+            </p>
+            <AccessClaimForm defaultEmail={email} />
+            <form action={handleSignOut}>
+              <Button variant="ghost" size="sm">
+                Sign Out
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </main>
     );
   }
 
-  const channels = await getChannelsForEmail(access.email);
+  const lineup = await getLineupByEmail(email);
 
   return (
-    <main className="section-shell py-10">
-      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <main className="mx-auto min-h-screen w-full max-w-5xl px-5 pb-16 pt-10 sm:px-8">
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-[#58a6ff]">Signed in as {access.email}</p>
-          <h1 className="text-3xl font-semibold text-[#f0f6fc]">YouTube Channel TV Dashboard</h1>
-          <p className="mt-2 text-[#9aa4b2]">Manage your channels and start an auto-playing stream in one tap.</p>
+          <p className="text-xs uppercase tracking-[0.16em] text-cyan-300">Dashboard</p>
+          <h1 className="text-3xl font-bold">Build Your Channel TV</h1>
+          <p className="text-sm text-slate-300">Signed in as {email}</p>
         </div>
-        <Link href={channels.length > 0 ? "/tv/lineup" : "/dashboard"}>
-          <Button disabled={channels.length === 0} size="lg" variant="outline">
-            <PlayCircle className="mr-2 h-4 w-4" />
-            Watch Now
-          </Button>
-        </Link>
-      </div>
+        <div className="flex gap-2">
+          <Link href="/tv">
+            <Button>Watch TV</Button>
+          </Link>
+          <form action={handleSignOut}>
+            <Button variant="secondary">Sign Out</Button>
+          </form>
+        </div>
+      </header>
 
-      <div className="grid gap-6">
-        <ChannelSelector />
-        <Card className="border-[#273145] bg-[#101824]">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Tv2 className="h-5 w-5 text-[#58a6ff]" />
-              TV Experience Settings
-            </CardTitle>
-            <CardDescription>
-              Add creators you trust and let playback run continuously. Each lineup mixes recent uploads to keep the stream fresh.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-        <ChannelGrid channels={channels} />
-      </div>
+      <ChannelSelector initialChannels={lineup.channels} />
     </main>
   );
 }
