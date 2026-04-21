@@ -1,239 +1,209 @@
 import { google } from "googleapis";
 
-export interface YouTubeChannel {
-  id: string;
+export type YouTubeChannelSummary = {
+  channelId: string;
   title: string;
   description: string;
   thumbnailUrl: string;
-}
+  handle?: string;
+  videoCount?: number;
+};
 
-export interface YouTubeVideo {
-  id: string;
+export type YouTubeVideo = {
+  videoId: string;
   title: string;
-  description: string;
   channelId: string;
   channelTitle: string;
-  publishedAt: string;
+  description: string;
   thumbnailUrl: string;
-  durationSeconds: number;
-  url: string;
+  publishedAt: string;
+};
+
+function getYouTubeApiKey() {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) {
+    throw new Error("YOUTUBE_API_KEY is missing. Add it to your environment to fetch channel videos.");
+  }
+  return key;
 }
 
-const cache = new Map<string, { expiresAt: number; data: unknown }>();
-
 function getYouTubeClient() {
-  const apiKey = process.env.YOUTUBE_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing YOUTUBE_API_KEY");
-  }
-
   return google.youtube({
     version: "v3",
-    auth: apiKey
+    auth: getYouTubeApiKey()
   });
 }
 
-function getFromCache<T>(key: string): T | null {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  if (entry.expiresAt < Date.now()) {
-    cache.delete(key);
+function cleanChannelQuery(input: string) {
+  return input.trim();
+}
+
+function extractChannelId(input: string) {
+  const normalized = input.trim();
+  const fromRawId = normalized.match(/^(UC[\w-]{22})$/);
+  if (fromRawId?.[1]) {
+    return fromRawId[1];
+  }
+
+  const fromUrl = normalized.match(/youtube\.com\/channel\/(UC[\w-]{22})/i);
+  if (fromUrl?.[1]) {
+    return fromUrl[1];
+  }
+
+  return null;
+}
+
+function extractHandle(input: string) {
+  const normalized = input.trim();
+  const fromHandle = normalized.match(/^@([\w.-]{3,30})$/);
+  if (fromHandle?.[1]) {
+    return fromHandle[1];
+  }
+
+  const fromUrl = normalized.match(/youtube\.com\/@([\w.-]{3,30})/i);
+  if (fromUrl?.[1]) {
+    return fromUrl[1];
+  }
+
+  return null;
+}
+
+function bestThumbnail(thumbnails: Record<string, { url?: string } | undefined> | undefined) {
+  return (
+    thumbnails?.maxres?.url ??
+    thumbnails?.high?.url ??
+    thumbnails?.medium?.url ??
+    thumbnails?.default?.url ??
+    ""
+  );
+}
+
+async function fetchChannelById(channelId: string): Promise<YouTubeChannelSummary | null> {
+  const youtube = getYouTubeClient();
+  const response = await youtube.channels.list({
+    id: [channelId],
+    part: ["snippet", "statistics"]
+  });
+
+  const item = response.data.items?.[0];
+  if (!item?.id || !item.snippet?.title) {
     return null;
   }
 
-  return entry.data as T;
+  return {
+    channelId: item.id,
+    title: item.snippet.title,
+    description: item.snippet.description ?? "",
+    thumbnailUrl: bestThumbnail(item.snippet.thumbnails as Record<string, { url?: string } | undefined>),
+    handle: item.snippet.customUrl ?? undefined,
+    videoCount: Number(item.statistics?.videoCount ?? 0)
+  };
 }
 
-function setCache<T>(key: string, data: T, ttlMs: number) {
-  cache.set(key, {
-    data,
-    expiresAt: Date.now() + ttlMs
-  });
-}
-
-function parseDurationToSeconds(isoDuration: string | null | undefined) {
-  if (!isoDuration) return 0;
-
-  const match = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(isoDuration);
-  if (!match) return 0;
-
-  const hours = Number(match[1] ?? 0);
-  const minutes = Number(match[2] ?? 0);
-  const seconds = Number(match[3] ?? 0);
-
-  return hours * 3600 + minutes * 60 + seconds;
-}
-
-export async function searchChannels(query: string) {
-  const trimmed = query.trim();
-  if (!trimmed) return [];
-
-  const cacheKey = `search:${trimmed.toLowerCase()}`;
-  const cached = getFromCache<YouTubeChannel[]>(cacheKey);
-  if (cached) return cached;
-
+async function searchForChannel(query: string): Promise<YouTubeChannelSummary | null> {
   const youtube = getYouTubeClient();
-  const response = await youtube.search.list({
+  const search = await youtube.search.list({
     part: ["snippet"],
-    q: trimmed,
+    q: query,
     type: ["channel"],
-    maxResults: 8
+    maxResults: 1
   });
 
-  const channels =
-    response.data.items
-      ?.map((item) => {
-        if (!item.id?.channelId || !item.snippet?.title) return null;
-
-        return {
-          id: item.id.channelId,
-          title: item.snippet.title,
-          description: item.snippet.description ?? "",
-          thumbnailUrl:
-            item.snippet.thumbnails?.high?.url ?? item.snippet.thumbnails?.default?.url ?? ""
-        } satisfies YouTubeChannel;
-      })
-      .filter((channel): channel is YouTubeChannel => Boolean(channel)) ?? [];
-
-  setCache(cacheKey, channels, 5 * 60 * 1000);
-  return channels;
-}
-
-export async function getChannelsByIds(channelIds: string[]) {
-  if (!channelIds.length) return [];
-
-  const normalized = channelIds.join(",");
-  const cacheKey = `channels:${normalized}`;
-  const cached = getFromCache<YouTubeChannel[]>(cacheKey);
-  if (cached) return cached;
-
-  const youtube = getYouTubeClient();
-
-  const response = await youtube.channels.list({
-    part: ["snippet"],
-    id: channelIds,
-    maxResults: channelIds.length
-  });
-
-  const channels =
-    response.data.items
-      ?.map((item) => {
-        if (!item.id || !item.snippet?.title) return null;
-
-        return {
-          id: item.id,
-          title: item.snippet.title,
-          description: item.snippet.description ?? "",
-          thumbnailUrl:
-            item.snippet.thumbnails?.high?.url ?? item.snippet.thumbnails?.default?.url ?? ""
-        } satisfies YouTubeChannel;
-      })
-      .filter((channel): channel is YouTubeChannel => Boolean(channel)) ?? [];
-
-  setCache(cacheKey, channels, 10 * 60 * 1000);
-  return channels;
-}
-
-export async function getLatestChannelVideos(channelId: string, maxResults = 12) {
-  const cacheKey = `videos:${channelId}:${maxResults}`;
-  const cached = getFromCache<YouTubeVideo[]>(cacheKey);
-  if (cached) return cached;
-
-  const youtube = getYouTubeClient();
-
-  const searchResponse = await youtube.search.list({
-    part: ["snippet"],
-    channelId,
-    type: ["video"],
-    maxResults,
-    order: "date"
-  });
-
-  const videoIds =
-    searchResponse.data.items
-      ?.map((item) => item.id?.videoId)
-      .filter((id): id is string => Boolean(id)) ?? [];
-
-  if (!videoIds.length) {
-    return [];
+  const candidate = search.data.items?.[0];
+  const channelId = candidate?.id?.channelId;
+  if (!channelId) {
+    return null;
   }
 
-  const videosResponse = await youtube.videos.list({
-    part: ["contentDetails", "snippet"],
-    id: videoIds
-  });
-
-  const videos =
-    videosResponse.data.items
-      ?.map((item) => {
-        const id = item.id;
-        const snippet = item.snippet;
-
-        if (!id || !snippet?.title || !snippet.channelId || !snippet.channelTitle || !snippet.publishedAt) {
-          return null;
-        }
-
-        const durationSeconds = parseDurationToSeconds(item.contentDetails?.duration);
-
-        // Skip shorts-style videos to keep TV flow relaxed and long-form.
-        if (durationSeconds > 0 && durationSeconds < 75) {
-          return null;
-        }
-
-        return {
-          id,
-          title: snippet.title,
-          description: snippet.description ?? "",
-          channelId: snippet.channelId,
-          channelTitle: snippet.channelTitle,
-          publishedAt: snippet.publishedAt,
-          thumbnailUrl: snippet.thumbnails?.high?.url ?? snippet.thumbnails?.default?.url ?? "",
-          durationSeconds,
-          url: `https://www.youtube.com/watch?v=${id}`
-        } satisfies YouTubeVideo;
-      })
-      .filter((video): video is YouTubeVideo => Boolean(video)) ?? [];
-
-  const sorted = videos.sort((a, b) =>
-    new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-  );
-
-  setCache(cacheKey, sorted, 8 * 60 * 1000);
-  return sorted;
+  return fetchChannelById(channelId);
 }
 
-export async function buildContinuousQueue(channelIds: string[], perChannel = 10) {
-  const uniqueChannelIds = [...new Set(channelIds)];
-  if (!uniqueChannelIds.length) return [];
+export async function resolveChannel(input: string): Promise<YouTubeChannelSummary> {
+  const query = cleanChannelQuery(input);
 
-  const allChannelVideos = await Promise.all(
-    uniqueChannelIds.map(async (channelId) => ({
-      channelId,
-      videos: await getLatestChannelVideos(channelId, perChannel)
-    }))
+  if (!query) {
+    throw new Error("Add a channel URL, @handle, or channel ID.");
+  }
+
+  const channelId = extractChannelId(query);
+  if (channelId) {
+    const byId = await fetchChannelById(channelId);
+    if (byId) {
+      return byId;
+    }
+  }
+
+  const handle = extractHandle(query);
+  if (handle) {
+    const byHandle = await searchForChannel(handle);
+    if (byHandle) {
+      return byHandle;
+    }
+  }
+
+  const byQuery = await searchForChannel(query.replace(/^https?:\/\//, ""));
+  if (byQuery) {
+    return byQuery;
+  }
+
+  throw new Error("No matching YouTube channel was found for that input.");
+}
+
+export async function getRecentVideos(channelId: string, maxResults = 12): Promise<YouTubeVideo[]> {
+  const youtube = getYouTubeClient();
+  const response = await youtube.search.list({
+    channelId,
+    part: ["snippet"],
+    maxResults,
+    order: "date",
+    type: ["video"]
+  });
+
+  return (response.data.items ?? [])
+    .map((item) => {
+      const videoId = item.id?.videoId;
+      const snippet = item.snippet;
+      if (!videoId || !snippet?.title || !snippet.channelId) {
+        return null;
+      }
+
+      return {
+        videoId,
+        title: snippet.title,
+        channelId: snippet.channelId,
+        channelTitle: snippet.channelTitle ?? "Unknown Channel",
+        description: snippet.description ?? "",
+        thumbnailUrl: bestThumbnail(snippet.thumbnails as Record<string, { url?: string } | undefined>),
+        publishedAt: snippet.publishedAt ?? new Date(0).toISOString()
+      };
+    })
+    .filter((video): video is YouTubeVideo => video !== null);
+}
+
+export async function buildContinuousLineup(channelIds: string[], perChannel = 8): Promise<YouTubeVideo[]> {
+  const uniqueChannelIds = Array.from(new Set(channelIds.filter(Boolean)));
+
+  const perChannelVideos = await Promise.all(
+    uniqueChannelIds.map(async (channelId) => {
+      const videos = await getRecentVideos(channelId, perChannel);
+      return videos.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+    })
   );
 
-  const queue: YouTubeVideo[] = [];
-  const working = allChannelVideos.map((entry) => ({ ...entry, cursor: 0 }));
+  const lineup: YouTubeVideo[] = [];
+  let didAdd = true;
 
-  let hasMore = true;
+  while (didAdd && lineup.length < uniqueChannelIds.length * perChannel) {
+    didAdd = false;
 
-  while (hasMore) {
-    hasMore = false;
-
-    for (const entry of working) {
-      const nextVideo = entry.videos[entry.cursor];
+    for (const list of perChannelVideos) {
+      const nextVideo = list.shift();
       if (nextVideo) {
-        queue.push(nextVideo);
-        entry.cursor += 1;
-        hasMore = true;
+        lineup.push(nextVideo);
+        didAdd = true;
       }
     }
   }
 
-  const deduped = queue.filter(
-    (video, index, array) => array.findIndex((candidate) => candidate.id === video.id) === index
-  );
-
-  return deduped;
+  return lineup;
 }

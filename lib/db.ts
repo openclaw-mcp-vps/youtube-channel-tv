@@ -1,171 +1,171 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
-import { normalizeEmail } from "@/lib/utils";
+import { dirname, join } from "node:path";
 
-export interface UserRecord {
-  id: string;
-  email: string;
-  passwordHash: string;
-  passwordSalt: string;
-  createdAt: string;
-}
-
-export interface PurchaseRecord {
-  email: string;
-  provider: "stripe";
-  eventId: string;
-  createdAt: string;
-}
-
-export interface AppDatabase {
-  users: UserRecord[];
-  lineups: Record<string, string[]>;
-  purchases: PurchaseRecord[];
-  processedWebhookEvents: string[];
-}
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "app-db.json");
-
-const EMPTY_DB: AppDatabase = {
-  users: [],
-  lineups: {},
-  purchases: [],
-  processedWebhookEvents: []
+export type SavedChannel = {
+  channelId: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  handle?: string;
+  videoCount?: number;
+  addedAt: string;
 };
 
-let queue: Promise<unknown> = Promise.resolve();
+export type PurchaseRecord = {
+  email: string;
+  purchasedAt: string;
+  source: "stripe-payment-link";
+  sessionId?: string;
+  customerId?: string;
+};
 
-function runExclusive<T>(task: () => Promise<T>) {
-  const result = queue.then(task, task);
-  queue = result.then(
-    () => undefined,
-    () => undefined
-  );
-  return result;
+type DatabaseShape = {
+  purchases: Record<string, PurchaseRecord>;
+  channels: Record<string, SavedChannel[]>;
+};
+
+const DB_PATH = join(process.cwd(), ".data", "youtube-channel-tv.json");
+
+const EMPTY_DB: DatabaseShape = {
+  purchases: {},
+  channels: {}
+};
+
+let dbQueue: Promise<void> = Promise.resolve();
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
 }
 
 async function ensureDbFile() {
-  await mkdir(DATA_DIR, { recursive: true });
-
+  await mkdir(dirname(DB_PATH), { recursive: true });
   try {
-    await readFile(DB_PATH, "utf-8");
-  } catch {
-    await writeFile(DB_PATH, JSON.stringify(EMPTY_DB, null, 2));
+    await readFile(DB_PATH, "utf8");
+  } catch (error) {
+    const maybeError = error as NodeJS.ErrnoException;
+    if (maybeError.code !== "ENOENT") {
+      throw error;
+    }
+    await writeFile(DB_PATH, JSON.stringify(EMPTY_DB, null, 2), "utf8");
   }
 }
 
-async function readDb() {
-  await ensureDbFile();
-  const file = await readFile(DB_PATH, "utf-8");
+function toDatabaseShape(raw: unknown): DatabaseShape {
+  if (!raw || typeof raw !== "object") {
+    return { ...EMPTY_DB };
+  }
 
+  const parsed = raw as Partial<DatabaseShape>;
+
+  return {
+    purchases: parsed.purchases && typeof parsed.purchases === "object" ? parsed.purchases : {},
+    channels: parsed.channels && typeof parsed.channels === "object" ? parsed.channels : {}
+  };
+}
+
+async function readDb(): Promise<DatabaseShape> {
+  await ensureDbFile();
+  const contents = await readFile(DB_PATH, "utf8");
   try {
-    const parsed = JSON.parse(file) as AppDatabase;
-    return {
-      users: parsed.users ?? [],
-      lineups: parsed.lineups ?? {},
-      purchases: parsed.purchases ?? [],
-      processedWebhookEvents: parsed.processedWebhookEvents ?? []
-    } satisfies AppDatabase;
+    return toDatabaseShape(JSON.parse(contents));
   } catch {
-    await writeFile(DB_PATH, JSON.stringify(EMPTY_DB, null, 2));
     return { ...EMPTY_DB };
   }
 }
 
-async function writeDb(nextDb: AppDatabase) {
-  await writeFile(DB_PATH, JSON.stringify(nextDb, null, 2));
+async function writeDb(data: DatabaseShape) {
+  await mkdir(dirname(DB_PATH), { recursive: true });
+  await writeFile(DB_PATH, JSON.stringify(data, null, 2), "utf8");
 }
 
-export async function getUserByEmail(email: string) {
-  const normalized = normalizeEmail(email);
-  const db = await readDb();
-  return db.users.find((user) => user.email === normalized) ?? null;
-}
+async function runExclusive<T>(fn: (db: DatabaseShape) => Promise<T>): Promise<T> {
+  let result: T | undefined;
+  let thrown: unknown;
 
-export async function createUser(input: {
-  email: string;
-  passwordHash: string;
-  passwordSalt: string;
-}) {
-  return runExclusive(async () => {
-    const normalized = normalizeEmail(input.email);
+  dbQueue = dbQueue.then(async () => {
     const db = await readDb();
-
-    const existing = db.users.find((user) => user.email === normalized);
-    if (existing) {
-      return existing;
+    try {
+      result = await fn(db);
+    } catch (error) {
+      thrown = error;
+      return;
     }
+    await writeDb(db);
+  });
 
-    const user: UserRecord = {
-      id: randomUUID(),
-      email: normalized,
-      passwordHash: input.passwordHash,
-      passwordSalt: input.passwordSalt,
-      createdAt: new Date().toISOString()
+  await dbQueue;
+
+  if (thrown) {
+    throw thrown;
+  }
+
+  return result as T;
+}
+
+export async function recordPurchase(input: {
+  email: string;
+  sessionId?: string;
+  customerId?: string;
+}) {
+  const email = normalizeEmail(input.email);
+
+  await runExclusive(async (db) => {
+    db.purchases[email] = {
+      email,
+      purchasedAt: new Date().toISOString(),
+      source: "stripe-payment-link",
+      sessionId: input.sessionId,
+      customerId: input.customerId
     };
-
-    db.users.push(user);
-    await writeDb(db);
-
-    return user;
-  });
-}
-
-export async function getLineup(email: string) {
-  const normalized = normalizeEmail(email);
-  const db = await readDb();
-  return db.lineups[normalized] ?? [];
-}
-
-export async function saveLineup(email: string, channelIds: string[]) {
-  return runExclusive(async () => {
-    const normalized = normalizeEmail(email);
-    const db = await readDb();
-
-    db.lineups[normalized] = channelIds;
-    await writeDb(db);
-
-    return db.lineups[normalized];
-  });
-}
-
-export async function markPurchase(input: {
-  email: string;
-  provider: "stripe";
-  eventId: string;
-}) {
-  return runExclusive(async () => {
-    const normalized = normalizeEmail(input.email);
-    const db = await readDb();
-
-    if (db.processedWebhookEvents.includes(input.eventId)) {
-      return false;
-    }
-
-    db.processedWebhookEvents.push(input.eventId);
-
-    const exists = db.purchases.some(
-      (purchase) => purchase.email === normalized && purchase.provider === input.provider
-    );
-
-    if (!exists) {
-      db.purchases.push({
-        email: normalized,
-        provider: input.provider,
-        eventId: input.eventId,
-        createdAt: new Date().toISOString()
-      });
-    }
-
-    await writeDb(db);
-    return true;
   });
 }
 
 export async function hasPurchase(email: string) {
-  const normalized = normalizeEmail(email);
   const db = await readDb();
-  return db.purchases.some((purchase) => purchase.email === normalized);
+  return Boolean(db.purchases[normalizeEmail(email)]);
+}
+
+export async function getChannelsForEmail(email: string): Promise<SavedChannel[]> {
+  const db = await readDb();
+  return db.channels[normalizeEmail(email)] ?? [];
+}
+
+export async function addChannelForEmail(
+  email: string,
+  channel: Omit<SavedChannel, "addedAt">
+): Promise<SavedChannel[]> {
+  const normalizedEmail = normalizeEmail(email);
+
+  return runExclusive(async (db) => {
+    const existing = db.channels[normalizedEmail] ?? [];
+    const index = existing.findIndex((item) => item.channelId === channel.channelId);
+
+    const entry: SavedChannel = {
+      ...channel,
+      addedAt: new Date().toISOString()
+    };
+
+    if (index >= 0) {
+      existing[index] = {
+        ...existing[index],
+        ...entry,
+        addedAt: existing[index].addedAt
+      };
+    } else {
+      existing.unshift(entry);
+    }
+
+    db.channels[normalizedEmail] = existing;
+    return existing;
+  });
+}
+
+export async function removeChannelForEmail(email: string, channelId: string): Promise<SavedChannel[]> {
+  const normalizedEmail = normalizeEmail(email);
+
+  return runExclusive(async (db) => {
+    const existing = db.channels[normalizedEmail] ?? [];
+    db.channels[normalizedEmail] = existing.filter((item) => item.channelId !== channelId);
+    return db.channels[normalizedEmail];
+  });
 }
