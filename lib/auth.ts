@@ -1,55 +1,100 @@
-import NextAuth from "next-auth";
-import Credentials from "next-auth/providers/credentials";
+import type { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  trustHost: true,
-  secret: process.env.NEXTAUTH_SECRET || process.env.STRIPE_WEBHOOK_SECRET || "dev-auth-secret",
-  session: {
-    strategy: "jwt"
-  },
-  providers: [
-    Credentials({
-      name: "Email",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        name: { label: "Name", type: "text" }
-      },
-      async authorize(credentials) {
-        const emailRaw = credentials?.email;
-        if (!emailRaw || typeof emailRaw !== "string") {
-          return null;
-        }
+import { normalizeUserKey } from "@/lib/db";
 
-        const email = emailRaw.trim().toLowerCase();
-        if (!email.includes("@")) {
-          return null;
-        }
+export const ACCESS_COOKIE_NAME = "yttv_access";
+export const CUSTOMER_COOKIE_NAME = "yttv_customer";
+const ACCESS_COOKIE_VALUE = "active";
 
-        const nameRaw = credentials?.name;
-        const parsedName = typeof nameRaw === "string" ? nameRaw.trim() : "";
+function isClerkConfigured() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
+  );
+}
 
-        return {
-          id: email,
-          email,
-          name: parsedName.length > 0 ? parsedName : email.split("@")[0]
-        };
-      }
-    })
-  ],
-  pages: {
-    signIn: "/"
-  },
-  callbacks: {
-    async session({ session, token }) {
-      if (session.user && token.email) {
-        session.user.email = String(token.email);
-      }
-
-      if (session.user && token.name) {
-        session.user.name = String(token.name);
-      }
-
-      return session;
-    }
+async function getClerkUserIdSafely() {
+  if (!isClerkConfigured()) {
+    return null;
   }
-});
+
+  try {
+    const { auth } = await import("@clerk/nextjs/server");
+    const authResult = await auth();
+    return authResult.userId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getViewerIdentity() {
+  const cookieStore = await cookies();
+  const paidCustomer = cookieStore.get(CUSTOMER_COOKIE_NAME)?.value;
+
+  if (paidCustomer) {
+    return {
+      userKey: normalizeUserKey(paidCustomer),
+      source: "purchase" as const,
+      label: paidCustomer
+    };
+  }
+
+  const clerkUserId = await getClerkUserIdSafely();
+
+  if (clerkUserId) {
+    return {
+      userKey: normalizeUserKey(`clerk:${clerkUserId}`),
+      source: "clerk" as const,
+      label: `Clerk user ${clerkUserId.slice(0, 8)}`
+    };
+  }
+
+  return {
+    userKey: null,
+    source: "guest" as const,
+    label: "Guest"
+  };
+}
+
+export async function hasPaidAccess() {
+  const cookieStore = await cookies();
+  return cookieStore.get(ACCESS_COOKIE_NAME)?.value === ACCESS_COOKIE_VALUE;
+}
+
+export function requestHasPaidAccess(request: NextRequest) {
+  return request.cookies.get(ACCESS_COOKIE_NAME)?.value === ACCESS_COOKIE_VALUE;
+}
+
+export function getViewerKeyFromRequest(request: NextRequest) {
+  const paidCustomer = request.cookies.get(CUSTOMER_COOKIE_NAME)?.value;
+
+  if (paidCustomer) {
+    return normalizeUserKey(paidCustomer);
+  }
+
+  return null;
+}
+
+export function setPaidAccessCookies(response: NextResponse, email: string) {
+  const normalized = email.trim().toLowerCase();
+
+  response.cookies.set({
+    name: ACCESS_COOKIE_NAME,
+    value: ACCESS_COOKIE_VALUE,
+    maxAge: 60 * 60 * 24 * 30,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/"
+  });
+
+  response.cookies.set({
+    name: CUSTOMER_COOKIE_NAME,
+    value: normalized,
+    maxAge: 60 * 60 * 24 * 30,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/"
+  });
+}

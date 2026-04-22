@@ -1,41 +1,28 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, IBM_Plex_Sans } from "next/font/google";
+import { Manrope, Space_Grotesk } from "next/font/google";
 
-import "./globals.css";
+import "@/app/globals.css";
 
-const spaceGrotesk = Space_Grotesk({
+const headingFont = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-space-grotesk",
-  display: "swap"
+  variable: "--font-heading"
 });
 
-const ibmPlexSans = IBM_Plex_Sans({
+const bodyFont = Manrope({
   subsets: ["latin"],
-  variable: "--font-ibm-plex-sans",
-  weight: ["400", "500", "600", "700"],
-  display: "swap"
+  variable: "--font-body"
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://youtube-channel-tv.vercel.app"),
-  title: {
-    default: "YouTube Channel TV",
-    template: "%s | YouTube Channel TV"
-  },
+  metadataBase: new URL("https://youtube-channel-tv.example"),
+  title: "YouTube Channel TV | Lean-Back YouTube Like Cable",
   description:
-    "Turn YouTube into real TV channels. Build a creator lineup and watch continuously without endless decision fatigue.",
-  keywords: [
-    "YouTube TV channels",
-    "continuous YouTube playback",
-    "passive YouTube watching",
-    "creator lineup",
-    "background entertainment"
-  ],
+    "Turn your favorite YouTube creators into continuous TV-style channels. Press play once and watch without decision fatigue.",
   openGraph: {
     title: "YouTube Channel TV",
     description:
-      "Build a personal TV guide from YouTube creators and let it play like cable TV with zero decision overhead.",
-    url: "https://youtube-channel-tv.vercel.app",
+      "Continuous YouTube channel streams for people who want to relax without endless video choices.",
+    url: "https://youtube-channel-tv.example",
     siteName: "YouTube Channel TV",
     type: "website"
   },
@@ -43,7 +30,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "YouTube Channel TV",
     description:
-      "Turn choice-heavy YouTube into a lean-back TV experience with continuous channels built from creators you trust."
+      "Make YouTube feel like old-school TV with autoplay channel lineups."
   }
 };
 
@@ -53,8 +40,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} antialiased`}>{children}</body>
+    <html lang="en" className={`${headingFont.variable} ${bodyFont.variable} dark`}>
+      <body className="grid-fade antialiased">{children}</body>
     </html>
   );
 }

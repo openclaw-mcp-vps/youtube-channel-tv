@@ -1,9 +1,8 @@
-.next
 node_modules
+.next
+out
 .env
-.data
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+.env.local
 .DS_Store
+data/*.json
+!data/.gitkeep

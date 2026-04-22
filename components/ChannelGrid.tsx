@@ -1,84 +1,70 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Trash2, Tv2 } from "lucide-react";
-import type { SavedChannel } from "@/lib/db";
+import { Play, Trash2 } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import type { TVChannel } from "@/lib/types";
 
 type ChannelGridProps = {
-  channels: SavedChannel[];
+  channels: TVChannel[];
+  onRemove?: (channelId: string) => void;
 };
 
-export default function ChannelGrid({ channels }: ChannelGridProps) {
-  const router = useRouter();
-
-  async function removeChannel(channelId: string) {
-    const response = await fetch("/api/channels", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ action: "remove", channelId })
-    });
-
-    if (response.ok) {
-      router.refresh();
-    }
-  }
-
+export function ChannelGrid({ channels, onRemove }: ChannelGridProps) {
   if (channels.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>No Channels Yet</CardTitle>
-          <CardDescription>Add your favorite creators above to start a continuous TV-style stream.</CardDescription>
-        </CardHeader>
+      <Card className="border-dashed border-slate-700 bg-slate-900/50">
+        <CardContent className="py-10 text-center text-slate-400">
+          Your lineup is empty. Add creators you trust for chill background viewing.
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xl font-semibold text-[#f0f6fc]">Your Channel Lineup</h2>
-        <Link href="/tv/lineup">
-          <Button>
-            <Tv2 className="mr-2 h-4 w-4" />
-            Watch Full Lineup
-          </Button>
-        </Link>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {channels.map((channel) => (
-          <Card key={channel.channelId} className="overflow-hidden">
-            <div className="aspect-video bg-[#0d1117]">
-              <img alt={channel.title} className="h-full w-full object-cover" loading="lazy" src={channel.thumbnailUrl} />
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {channels.map((channel) => (
+        <Card key={channel.channelId} className="overflow-hidden border-slate-800 bg-slate-900/65">
+          <div className="h-28 w-full bg-slate-900">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={channel.thumbnail}
+              alt={`${channel.title} thumbnail`}
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <CardHeader className="pb-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <Badge variant="secondary">{channel.channelId}</Badge>
             </div>
-            <CardHeader className="pb-2">
-              <CardTitle className="line-clamp-1 text-base">{channel.title}</CardTitle>
-              <CardDescription className="line-clamp-2">{channel.description || "No public description provided."}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between gap-2">
+            <CardTitle className="line-clamp-2 text-base text-slate-100">{channel.title}</CardTitle>
+            {channel.description ? (
+              <p className="line-clamp-2 text-sm text-slate-400">{channel.description}</p>
+            ) : null}
+          </CardHeader>
+          <CardFooter className="gap-2">
+            <Button asChild className="flex-1">
               <Link href={`/tv/${channel.channelId}`}>
-                <Button size="sm" variant="outline">
-                  <Tv2 className="mr-2 h-4 w-4" />
-                  Watch
-                </Button>
+                <Play className="size-4" />
+                Watch Channel
               </Link>
-              <button
+            </Button>
+            {onRemove ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onRemove(channel.channelId)}
                 aria-label={`Remove ${channel.title}`}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#30363d] text-[#9aa4b2] transition hover:bg-[#1f2733] hover:text-[#ff7b72]"
-                onClick={() => void removeChannel(channel.channelId)}
-                type="button"
               >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <Trash2 className="size-4 text-rose-400" />
+              </Button>
+            ) : null}
+          </CardFooter>
+        </Card>
+      ))}
     </div>
   );
 }

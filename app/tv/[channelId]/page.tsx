@@ -1,12 +1,19 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import TVPlayer from "@/components/TVPlayer";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getAccessFromServerCookies } from "@/lib/auth";
-import { getChannelsForEmail } from "@/lib/db";
 
-export const dynamic = "force-dynamic";
+import { TVPlayer } from "@/components/TVPlayer";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getViewerIdentity, hasPaidAccess } from "@/lib/auth";
+import { getUserChannels } from "@/lib/db";
+import { fetchChannelProfile, fetchChannelVideos } from "@/lib/youtube";
+
+export const metadata: Metadata = {
+  title: "TV Mode | YouTube Channel TV",
+  description: "Watch a continuous stream of videos from your selected creator channels."
+};
 
 type TVPageProps = {
   params: Promise<{
@@ -14,56 +21,56 @@ type TVPageProps = {
   }>;
 };
 
-export default async function TVPage({ params }: TVPageProps) {
-  const resolvedParams = await params;
-  const access = await getAccessFromServerCookies();
+export default async function TVChannelPage({ params }: TVPageProps) {
+  const access = await hasPaidAccess();
+
   if (!access) {
     redirect("/dashboard");
   }
 
-  const channels = await getChannelsForEmail(access.email);
+  const { channelId } = await params;
 
-  if (channels.length === 0) {
-    return (
-      <main className="section-shell py-12">
-        <Card>
-          <CardHeader>
-            <CardTitle>No Channels Configured</CardTitle>
-            <CardDescription>Add at least one channel before opening TV mode.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/dashboard">
-              <Button>Back to Dashboard</Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
+  const [channel, videos] = await Promise.all([
+    fetchChannelProfile(channelId).catch(() => null),
+    fetchChannelVideos(channelId, 40).catch(() => [])
+  ]);
 
-  const isLineup = resolvedParams.channelId === "lineup";
-  const selectedChannel = channels.find((channel) => channel.channelId === resolvedParams.channelId);
-
-  if (!isLineup && !selectedChannel) {
+  if (!channel || videos.length === 0) {
     notFound();
   }
 
-  const headline = isLineup ? "Your Full Lineup" : selectedChannel!.title;
-  const channelIds = isLineup ? channels.map((channel) => channel.channelId) : [selectedChannel!.channelId];
+  const viewer = await getViewerIdentity();
+  const lineup = viewer.userKey ? await getUserChannels(viewer.userKey) : [channel];
 
   return (
-    <main className="section-shell py-8">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm text-[#58a6ff]">TV Mode</p>
-          <h1 className="text-3xl font-semibold text-[#f0f6fc]">{headline}</h1>
+    <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-900/75 p-4">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge>TV Mode</Badge>
+            <Badge variant="secondary">Autoplay On</Badge>
+          </div>
+          <h1 className="text-2xl font-semibold text-slate-100">{channel.title}</h1>
+          <p className="max-w-3xl text-sm text-slate-400">
+            Press play once and let the channel run. Videos auto-advance continuously.
+          </p>
         </div>
-        <Link href="/dashboard">
-          <Button variant="outline">Back to Dashboard</Button>
-        </Link>
-      </div>
+        <Button asChild variant="secondary">
+          <Link href="/dashboard">Back to Dashboard</Link>
+        </Button>
+      </header>
 
-      <TVPlayer channelIds={channelIds} headline={headline} />
+      <TVPlayer channel={channel} videos={videos} lineup={lineup.length > 0 ? lineup : [channel]} />
+
+      <Card className="border-slate-800 bg-slate-900/65">
+        <CardHeader>
+          <CardTitle className="text-lg">What makes this TV-like?</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-slate-300">
+          This channel loops through creator uploads in sequence and auto-advances without
+          returning to browsing. Add more channels in the dashboard and surf between them anytime.
+        </CardContent>
+      </Card>
     </main>
   );
 }

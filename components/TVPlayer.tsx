@@ -1,200 +1,139 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo } from "react";
-import { create } from "zustand";
-import { ArrowLeft, ArrowRight, Radio } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { ListVideo, SkipBack, SkipForward } from "lucide-react";
 
-import ChannelGuide from "@/components/ChannelGuide";
 import { Button } from "@/components/ui/button";
-import type { YouTubeChannel } from "@/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { TVChannel, TVVideo } from "@/lib/types";
 
-const ReactPlayer = dynamic(() => import("react-player/lazy"), { ssr: false });
-
-type TVState = {
-  channels: YouTubeChannel[];
-  activeChannelId: string | null;
-  playheads: Record<string, number>;
-  hydrate(channels: YouTubeChannel[]): void;
-  setActiveChannel(channelId: string): void;
-  next(): void;
-  previous(): void;
-};
-
-const useTVStore = create<TVState>((set, get) => ({
-  channels: [],
-  activeChannelId: null,
-  playheads: {},
-  hydrate(channels) {
-    const playheads: Record<string, number> = {};
-
-    for (const channel of channels) {
-      if (channel.videos.length === 0) {
-        playheads[channel.id] = 0;
-        continue;
-      }
-
-      playheads[channel.id] = Math.floor(Math.random() * channel.videos.length);
-    }
-
-    set({
-      channels,
-      playheads,
-      activeChannelId: channels[0]?.id ?? null
-    });
-  },
-  setActiveChannel(channelId) {
-    set({ activeChannelId: channelId });
-  },
-  next() {
-    const state = get();
-    if (!state.activeChannelId) {
-      return;
-    }
-
-    const channel = state.channels.find((entry) => entry.id === state.activeChannelId);
-    if (!channel || channel.videos.length === 0) {
-      return;
-    }
-
-    const current = state.playheads[state.activeChannelId] ?? 0;
-    const nextIndex = (current + 1) % channel.videos.length;
-
-    set({
-      playheads: {
-        ...state.playheads,
-        [state.activeChannelId]: nextIndex
-      }
-    });
-  },
-  previous() {
-    const state = get();
-    if (!state.activeChannelId) {
-      return;
-    }
-
-    const channel = state.channels.find((entry) => entry.id === state.activeChannelId);
-    if (!channel || channel.videos.length === 0) {
-      return;
-    }
-
-    const current = state.playheads[state.activeChannelId] ?? 0;
-    const prevIndex = (current - 1 + channel.videos.length) % channel.videos.length;
-
-    set({
-      playheads: {
-        ...state.playheads,
-        [state.activeChannelId]: prevIndex
-      }
-    });
-  }
-}));
+const ReactPlayer = dynamic(() => import("react-player/youtube"), { ssr: false });
 
 type TVPlayerProps = {
-  channels: YouTubeChannel[];
+  channel: TVChannel;
+  videos: TVVideo[];
+  lineup: TVChannel[];
 };
 
-export default function TVPlayer({ channels }: TVPlayerProps) {
-  const {
-    channels: hydratedChannels,
-    activeChannelId,
-    playheads,
-    hydrate,
-    setActiveChannel,
-    next,
-    previous
-  } = useTVStore();
+export function TVPlayer({ channel, videos, lineup }: TVPlayerProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-  useEffect(() => {
-    hydrate(channels);
-  }, [channels, hydrate]);
+  const currentVideo = videos[currentIndex];
 
-  const activeChannel = useMemo(
-    () => hydratedChannels.find((channel) => channel.id === activeChannelId) ?? null,
-    [hydratedChannels, activeChannelId]
-  );
+  const neighbors = useMemo(() => {
+    const currentPosition = lineup.findIndex(
+      (lineupChannel) => lineupChannel.channelId === channel.channelId
+    );
 
-  const activeVideo = useMemo(() => {
-    if (!activeChannel) {
-      return null;
+    if (currentPosition === -1 || lineup.length === 0) {
+      return { prev: null, next: null };
     }
 
-    if (activeChannel.videos.length === 0) {
-      return null;
-    }
+    const prev = lineup[(currentPosition - 1 + lineup.length) % lineup.length] ?? null;
+    const next = lineup[(currentPosition + 1) % lineup.length] ?? null;
 
-    const playhead = playheads[activeChannel.id] ?? 0;
-    return activeChannel.videos[playhead] ?? null;
-  }, [activeChannel, playheads]);
+    return { prev, next };
+  }, [lineup, channel.channelId]);
 
-  const nowPlayingByChannel = useMemo(() => {
-    const lookup: Record<string, string> = {};
+  if (!currentVideo) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-slate-300">
+          No playable videos were found for this channel.
+        </CardContent>
+      </Card>
+    );
+  }
 
-    for (const channel of hydratedChannels) {
-      if (channel.videos.length === 0) {
-        lookup[channel.id] = "No recent videos";
-        continue;
-      }
+  const advance = () => {
+    setCurrentIndex((index) => (index + 1) % videos.length);
+  };
 
-      const playhead = playheads[channel.id] ?? 0;
-      lookup[channel.id] = channel.videos[playhead]?.title || "No recent videos";
-    }
-
-    return lookup;
-  }, [hydratedChannels, playheads]);
+  const rewind = () => {
+    setCurrentIndex((index) => (index - 1 + videos.length) % videos.length);
+  };
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1fr_320px]">
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-3 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
-          <div className="aspect-video overflow-hidden rounded-xl bg-black">
-            {activeVideo ? (
-              <ReactPlayer
-                key={`${activeChannel?.id}-${activeVideo.id}`}
-                url={activeVideo.url}
-                width="100%"
-                height="100%"
-                controls
-                playing
-                onEnded={next}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                {activeChannel ? "No playable videos for this channel yet." : "No channel selected."}
-              </div>
-            )}
+    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <Card className="overflow-hidden border-cyan-500/20 bg-slate-950/70">
+        <CardContent className="p-0">
+          <div className="aspect-video w-full bg-black">
+            <ReactPlayer
+              key={currentVideo.videoId}
+              url={currentVideo.url}
+              width="100%"
+              height="100%"
+              controls
+              playing
+              onEnded={advance}
+              onError={advance}
+              config={{
+                playerVars: {
+                  autoplay: 1,
+                  rel: 0,
+                  modestbranding: 1
+                }
+              }}
+            />
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/50 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Now Playing</p>
-              <p className="text-lg font-semibold text-slate-100">{activeChannel?.title || "Idle"}</p>
-              <p className="line-clamp-2 text-sm text-slate-300">{activeVideo?.title || "Pick a channel to start."}</p>
-            </div>
-            <Radio className="h-5 w-5 text-cyan-300" />
+      <Card className="h-fit border-slate-800 bg-slate-900/70">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-lg text-slate-100">Now Playing</CardTitle>
+            <ListVideo className="size-4 text-slate-400" />
           </div>
-
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={previous}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Previous
+          <p className="text-sm text-slate-400">{channel.title}</p>
+          <p className="line-clamp-2 text-sm text-slate-200">{currentVideo.title}</p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="secondary" onClick={rewind}>
+              <SkipBack className="size-4" />
+              Back
             </Button>
-            <Button onClick={next}>
+            <Button variant="secondary" onClick={advance}>
+              <SkipForward className="size-4" />
               Next
-              <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
-        </div>
-      </div>
 
-      <ChannelGuide
-        channels={hydratedChannels}
-        activeChannelId={activeChannelId}
-        nowPlayingByChannel={nowPlayingByChannel}
-        onSelect={setActiveChannel}
-      />
-    </section>
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Channel Surf</p>
+            {neighbors.prev ? (
+              <Button variant="ghost" asChild className="w-full justify-start">
+                <Link href={`/tv/${neighbors.prev.channelId}`}>Previous: {neighbors.prev.title}</Link>
+              </Button>
+            ) : null}
+            {neighbors.next ? (
+              <Button variant="ghost" asChild className="w-full justify-start">
+                <Link href={`/tv/${neighbors.next.channelId}`}>Next: {neighbors.next.title}</Link>
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+            {videos.map((video, index) => (
+              <button
+                key={video.videoId}
+                type="button"
+                onClick={() => setCurrentIndex(index)}
+                className={`w-full rounded-md px-3 py-2 text-left text-sm transition ${
+                  index === currentIndex
+                    ? "bg-cyan-500/20 text-cyan-100"
+                    : "text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                {video.title}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
